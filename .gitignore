@@ -1,0 +1,33 @@
+.gradle
+build/
+!gradle/wrapper/gradle-wrapper.jar
+!**/src/main/**/build/
+!**/src/test/**/build/
+.kotlin
+
+### IntelliJ IDEA ###
+.idea/
+.idea/**
+.idea/compiler.xml
+.idea/libraries/
+*.iws
+*.iml
+*.ipr
+out/
+!**/src/main/**/out/
+!**/src/test/**/out/
+
+# Fastmail archive & SQLite state (b/c active downloads)
+mail_archive/
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+
+# OAuth tokens & secrets
+tokens/
+src/main/resources/credentials.json
+
+
+### Mac OS ###
+.DS_Store
