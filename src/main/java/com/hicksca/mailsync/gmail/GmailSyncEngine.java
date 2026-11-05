@@ -1,5 +1,6 @@
 package com.hicksca.mailsync.gmail;
 
+import com.google.api.client.googleapis.json.GoogleJsonResponseException;
 import com.google.api.client.http.FileContent;
 import com.google.api.services.gmail.Gmail;
 import com.google.api.services.gmail.model.Label;
@@ -11,7 +12,10 @@ import java.io.File;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.sql.SQLException;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 
 public class GmailSyncEngine {
     private final Gmail gmail;
@@ -35,19 +39,55 @@ public class GmailSyncEngine {
     }
 
     private String getOrCreateLabel(String labelName) throws IOException {
+        String normalizedName = labelName.trim();
+
+        // Prevent empty label crashes
+        if (normalizedName.isEmpty()) {
+            return "INBOX";
+        }
+
+        // Intercept reserved names and return Gmail's built-in System IDs
+        String upper = normalizedName.toUpperCase();
+        switch (upper) {
+            case "INBOX": return "INBOX";
+            case "SPAM":
+            case "JUNK MAIL":
+            case "JUNK": return "SPAM";
+            case "TRASH":
+            case "DELETED MESSAGES": return "TRASH";
+            case "DRAFTS": return "DRAFT";
+            case "SENT":
+            case "SENT MESSAGES": return "SENT";
+            case "STARRED": return "STARRED";
+            case "UNREAD": return "UNREAD";
+            case "IMPORTANT": return "IMPORTANT";
+        }
+
         String key = labelName.toLowerCase();
         if (gmailLabelCache.containsKey(key)) {
             return gmailLabelCache.get(key);
         }
 
-        Label newLabel = new Label()
-                .setName(labelName)
-                .setLabelListVisibility("labelShow")
-                .setMessageListVisibility("show");
+        try {
+            Label newLabel = new Label()
+                    .setName(normalizedName)
+                    .setLabelListVisibility("labelShow")
+                    .setMessageListVisibility("show");
 
-        Label created = gmail.users().labels().create("me", newLabel).execute();
-        gmailLabelCache.put(key, created.getId());
-        return created.getId();
+            Label createdLabel = gmail.users().labels().create("me", newLabel).execute();
+
+            // Cache it so we don't create it again
+            gmailLabelCache.put(key, createdLabel.getId());
+
+            return createdLabel.getId();
+
+        } catch (GoogleJsonResponseException e) {
+            if (e.getStatusCode() == 400) {
+                System.err.println("WARNING: Gmail API rejected folder name: '" + labelName + "'. Routing to INBOX.");
+                return "INBOX";
+            }
+            throw e;
+        }
     }
 
     public void runUpload() throws IOException, SQLException, InterruptedException {
@@ -76,6 +116,9 @@ public class GmailSyncEngine {
                             labelIds.add("TRASH");
                         } else if (mbName.equalsIgnoreCase("Sent") || mbName.equalsIgnoreCase("Sent Messages")) {
                             labelIds.add("SENT");
+                        } else if (mbName.equalsIgnoreCase("Archive")) {
+                            // Do nothing. In Gmail, "Archive" simply means it has no INBOX label.
+                            // Passing no label sends the email directly to "All Mail".
                         } else {
                             labelIds.add(getOrCreateLabel(mbName));
                         }
