@@ -130,14 +130,45 @@ public class GmailSyncEngine {
             FileContent media = new FileContent("message/rfc822", file);
 
             // Import preserving raw RFC 822 timestamps & headers
-            Message inserted = gmail.users().messages()
-                    .gmailImport("me", meta, media)
-                    .setNeverMarkSpam(true)
-                    .setProcessForCalendar(false)
-                    .execute();
+            Message inserted = null;
+            int maxRetries = 3;
 
-            db.markUploaded(record.fastmailId(), inserted.getId());
-            System.out.printf("[%d/%d] Uploaded to Gmail: %s -> %s%n", i + 1, pending.size(), record.fastmailId(), inserted.getId());
+            for (int attempt = 1; attempt <= maxRetries; attempt++) {
+                try {
+                    inserted = gmail.users().messages()
+                            .gmailImport("me", meta, media)
+                            .setNeverMarkSpam(true)
+                            .setProcessForCalendar(false)
+                            .execute();
+                    break; // Success, break out of the retry loop
+
+                } catch (GoogleJsonResponseException e) {
+                    // Catch 500 (Internal Server Error) and 429 (Rate Limit)
+                    if (e.getStatusCode() >= 500 || e.getStatusCode() == 429) {
+                        if (attempt == maxRetries) {
+                            throw e; // Fail permanently if we exhaust retries
+                        }
+                        System.err.println("Google API hiccup (HTTP " + e.getStatusCode() + "). Retrying in 5 seconds... (" + attempt + "/" + maxRetries + ")");
+                        Thread.sleep(5000); // Wait 5 seconds before trying again
+                    } else {
+                        throw e; // Bubble up other unrecoverable errors (like 400 Bad Request)
+                    }
+                } catch (IOException e) {
+                    // Catch network-level drops like java.net.SocketTimeoutException
+                    if (attempt == maxRetries) {
+                        throw e;
+                    }
+                    System.err.println("Network connection error (" + e.getMessage() + "). Retrying in 5 seconds... (" + attempt + "/" + maxRetries + ")");
+                    Thread.sleep(5000);
+                }
+            }
+
+            if (inserted != null) {
+                db.markUploaded(record.fastmailId(), inserted.getId());
+                System.out.printf("[%d/%d] Uploaded to Gmail: %s -> %s%n", i + 1, pending.size(), record.fastmailId(), inserted.getId());
+            } else {
+                throw new IOException("Failed to upload message after retries: " + record.fastmailId());
+            }
 
             // Rate pacing: Sleep 350ms to stay safely under Gmail API user quota (25 units per import; max 6,000 units/min per user)
             Thread.sleep(350);
