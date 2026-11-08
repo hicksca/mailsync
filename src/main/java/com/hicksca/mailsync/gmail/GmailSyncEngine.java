@@ -136,21 +136,36 @@ public class GmailSyncEngine {
                     break;
 
                 } catch (GoogleJsonResponseException e) {
+<<<<<<< HEAD
                     // This is the CORRECT retry catch block for message uploads
+=======
+                    // 1. Catch 400 Bad Request (blocked attachments)
+>>>>>>> ae1a1ff (Add 400 Bad Request skip logic to runUpload retry loop)
                     if (e.getStatusCode() == 400) {
                         System.err.println("Skipping message due to Google API rejection (blocked attachment): " + record.fastmailId());
                         inserted = new Message().setId("SKIPPED_400_BAD_REQUEST");
                         break;
                     }
+<<<<<<< HEAD
+=======
+                    // 2. Catch 500 (Internal Server Error) and 429 (Rate Limit)
+>>>>>>> ae1a1ff (Add 400 Bad Request skip logic to runUpload retry loop)
                     else if (e.getStatusCode() >= 500 || e.getStatusCode() == 429) {
                         if (attempt == maxRetries) {
                             throw e;
                         }
                         System.err.println("Google API hiccup (HTTP " + e.getStatusCode() + "). Retrying in 5 seconds... (" + attempt + "/" + maxRetries + ")");
+<<<<<<< HEAD
                         Thread.sleep(5000);
                     }
                     else {
                         throw e;
+=======
+                        Thread.sleep(5000); // Wait 5 seconds before trying again
+                    }
+                    else {
+                        throw e; // Bubble up any other unknown errors
+>>>>>>> ae1a1ff (Add 400 Bad Request skip logic to runUpload retry loop)
                     }
                 } catch (IOException e) {
                     if (attempt == maxRetries) {
