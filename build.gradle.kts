@@ -26,6 +26,12 @@ dependencies {
     // Logging & Terminal UX
     implementation("org.slf4j:slf4j-simple:2.0.12")
     implementation("me.tongfei:progressbar:0.10.0")
+
+    // Testing
+    testImplementation("org.mockito:mockito-core:5.+")
+    testImplementation("org.junit.jupiter:junit-jupiter:5.10.0")
+    testRuntimeOnly("org.junit.platform:junit-platform-launcher")
+
 }
 
 application {
@@ -35,4 +41,8 @@ java {
     toolchain {
         languageVersion.set(JavaLanguageVersion.of(21))
     }
+}
+
+tasks.withType<Test> {
+    useJUnitPlatform()
 }

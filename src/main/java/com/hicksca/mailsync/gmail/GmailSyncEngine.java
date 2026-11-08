@@ -41,12 +41,10 @@ public class GmailSyncEngine {
     private String getOrCreateLabel(String labelName) throws IOException {
         String normalizedName = labelName.trim();
 
-        // Prevent empty label crashes
         if (normalizedName.isEmpty()) {
             return "INBOX";
         }
 
-        // Intercept reserved names and return Gmail's built-in System IDs
         String upper = normalizedName.toUpperCase();
         switch (upper) {
             case "INBOX": return "INBOX";
@@ -75,13 +73,11 @@ public class GmailSyncEngine {
                     .setMessageListVisibility("show");
 
             Label createdLabel = gmail.users().labels().create("me", newLabel).execute();
-
-            // Cache it so we don't create it again
             gmailLabelCache.put(key, createdLabel.getId());
-
             return createdLabel.getId();
 
         } catch (GoogleJsonResponseException e) {
+            // This is the label creation catch block (Restored to original)
             if (e.getStatusCode() == 400) {
                 System.err.println("WARNING: Gmail API rejected folder name: '" + labelName + "'. Routing to INBOX.");
                 return "INBOX";
@@ -104,7 +100,6 @@ public class GmailSyncEngine {
                 continue;
             }
 
-            // Map Fastmail mailboxes to Gmail label IDs
             List<String> labelIds = new ArrayList<>();
             if (record.mailboxIds() != null && !record.mailboxIds().isBlank()) {
                 for (String mbId : record.mailboxIds().split(",")) {
@@ -117,8 +112,7 @@ public class GmailSyncEngine {
                         } else if (mbName.equalsIgnoreCase("Sent") || mbName.equalsIgnoreCase("Sent Messages")) {
                             labelIds.add("SENT");
                         } else if (mbName.equalsIgnoreCase("Archive")) {
-                            // Do nothing. In Gmail, "Archive" simply means it has no INBOX label.
-                            // Passing no label sends the email directly to "All Mail".
+                            // Do nothing
                         } else {
                             labelIds.add(getOrCreateLabel(mbName));
                         }
@@ -129,7 +123,6 @@ public class GmailSyncEngine {
             Message meta = new Message().setLabelIds(labelIds);
             FileContent media = new FileContent("message/rfc822", file);
 
-            // Import preserving raw RFC 822 timestamps & headers
             Message inserted = null;
             int maxRetries = 3;
 
@@ -140,21 +133,26 @@ public class GmailSyncEngine {
                             .setNeverMarkSpam(true)
                             .setProcessForCalendar(false)
                             .execute();
-                    break; // Success, break out of the retry loop
+                    break;
 
                 } catch (GoogleJsonResponseException e) {
-                    // Catch 500 (Internal Server Error) and 429 (Rate Limit)
-                    if (e.getStatusCode() >= 500 || e.getStatusCode() == 429) {
+                    // This is the CORRECT retry catch block for message uploads
+                    if (e.getStatusCode() == 400) {
+                        System.err.println("Skipping message due to Google API rejection (blocked attachment): " + record.fastmailId());
+                        inserted = new Message().setId("SKIPPED_400_BAD_REQUEST");
+                        break;
+                    }
+                    else if (e.getStatusCode() >= 500 || e.getStatusCode() == 429) {
                         if (attempt == maxRetries) {
-                            throw e; // Fail permanently if we exhaust retries
+                            throw e;
                         }
                         System.err.println("Google API hiccup (HTTP " + e.getStatusCode() + "). Retrying in 5 seconds... (" + attempt + "/" + maxRetries + ")");
-                        Thread.sleep(5000); // Wait 5 seconds before trying again
-                    } else {
-                        throw e; // Bubble up other unrecoverable errors (like 400 Bad Request)
+                        Thread.sleep(5000);
+                    }
+                    else {
+                        throw e;
                     }
                 } catch (IOException e) {
-                    // Catch network-level drops like java.net.SocketTimeoutException
                     if (attempt == maxRetries) {
                         throw e;
                     }
@@ -170,7 +168,6 @@ public class GmailSyncEngine {
                 throw new IOException("Failed to upload message after retries: " + record.fastmailId());
             }
 
-            // Rate pacing: Sleep 350ms to stay safely under Gmail API user quota (25 units per import; max 6,000 units/min per user)
             Thread.sleep(350);
         }
 
