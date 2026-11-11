@@ -77,7 +77,7 @@ public class GmailSyncEngine {
             return createdLabel.getId();
 
         } catch (GoogleJsonResponseException e) {
-            // This is the label creation catch block (Restored to original)
+            // Label creation catch block
             if (e.getStatusCode() == 400) {
                 System.err.println("WARNING: Gmail API rejected folder name: '" + labelName + "'. Routing to INBOX.");
                 return "INBOX";
@@ -133,41 +133,28 @@ public class GmailSyncEngine {
                             .setNeverMarkSpam(true)
                             .setProcessForCalendar(false)
                             .execute();
-                    break;
+                    break; // Success, break out of the retry loop
 
                 } catch (GoogleJsonResponseException e) {
-<<<<<<< HEAD
-                    // This is the CORRECT retry catch block for message uploads
-=======
                     // 1. Catch 400 Bad Request (blocked attachments)
->>>>>>> ae1a1ff (Add 400 Bad Request skip logic to runUpload retry loop)
                     if (e.getStatusCode() == 400) {
                         System.err.println("Skipping message due to Google API rejection (blocked attachment): " + record.fastmailId());
                         inserted = new Message().setId("SKIPPED_400_BAD_REQUEST");
                         break;
                     }
-<<<<<<< HEAD
-=======
                     // 2. Catch 500 (Internal Server Error) and 429 (Rate Limit)
->>>>>>> ae1a1ff (Add 400 Bad Request skip logic to runUpload retry loop)
                     else if (e.getStatusCode() >= 500 || e.getStatusCode() == 429) {
                         if (attempt == maxRetries) {
-                            throw e;
+                            throw e; // Fail permanently if we exhaust retries
                         }
                         System.err.println("Google API hiccup (HTTP " + e.getStatusCode() + "). Retrying in 5 seconds... (" + attempt + "/" + maxRetries + ")");
-<<<<<<< HEAD
-                        Thread.sleep(5000);
-                    }
-                    else {
-                        throw e;
-=======
                         Thread.sleep(5000); // Wait 5 seconds before trying again
                     }
                     else {
                         throw e; // Bubble up any other unknown errors
->>>>>>> ae1a1ff (Add 400 Bad Request skip logic to runUpload retry loop)
                     }
                 } catch (IOException e) {
+                    // Catch network-level drops like java.net.SocketTimeoutException
                     if (attempt == maxRetries) {
                         throw e;
                     }
