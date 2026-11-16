@@ -25,7 +25,8 @@ public class GmailAuthFactory {
     private static final GsonFactory JSON_FACTORY = GsonFactory.getDefaultInstance();
     private static final List<String> SCOPES = List.of(
             GmailScopes.GMAIL_INSERT,
-            GmailScopes.GMAIL_LABELS
+            GmailScopes.GMAIL_LABELS,
+            GmailScopes.GMAIL_MODIFY
     );
     private static final String TOKENS_DIRECTORY_PATH = "tokens";
 

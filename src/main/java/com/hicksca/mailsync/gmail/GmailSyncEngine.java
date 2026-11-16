@@ -1,10 +1,12 @@
 package com.hicksca.mailsync.gmail;
 
 import com.google.api.client.googleapis.json.GoogleJsonResponseException;
+import com.google.api.services.gmail.model.BatchModifyMessagesRequest;
 import com.google.api.client.http.FileContent;
 import com.google.api.services.gmail.Gmail;
 import com.google.api.services.gmail.model.Label;
 import com.google.api.services.gmail.model.ListLabelsResponse;
+import com.google.api.services.gmail.model.ListMessagesResponse;
 import com.google.api.services.gmail.model.Message;
 import com.hicksca.mailsync.storage.MigrationDb;
 
@@ -16,6 +18,8 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Collections;
+import java.util.stream.Collectors;
 
 public class GmailSyncEngine {
     private final Gmail gmail;
@@ -77,10 +81,20 @@ public class GmailSyncEngine {
             return createdLabel.getId();
 
         } catch (GoogleJsonResponseException e) {
-            // Label creation catch block
+            // Catch 400: Gmail API rejected folder name (e.g. reserved names)
             if (e.getStatusCode() == 400) {
                 System.err.println("WARNING: Gmail API rejected folder name: '" + labelName + "'. Routing to INBOX.");
                 return "INBOX";
+            }
+            // Catch 409: Label already exists in Gmail but wasn't in our local cache
+            if (e.getStatusCode() == 409) {
+                ListLabelsResponse response = gmail.users().labels().list("me").execute();
+                for (Label l : response.getLabels()) {
+                    if (l.getName().equalsIgnoreCase(normalizedName)) {
+                        gmailLabelCache.put(key, l.getId());
+                        return l.getId();
+                    }
+                }
             }
             throw e;
         }
@@ -174,5 +188,59 @@ public class GmailSyncEngine {
         }
 
         System.out.println("Gmail migration process completed.");
+    }
+
+    /**
+     * Organizes emails by year and domain using nested Gmail labels.
+     * Example: organizeLegacyEmails(2017, 2025);
+     */
+    public void organizeLegacyEmails(int startYear, int endYear) throws IOException {
+        String[] domains = {"carlhicks.me", "carlhicks.org", "hicksca.com", "hicksca.dev", "hey.com", "linux.com"};
+
+        // Populate local cache first to minimize duplicate API calls
+        initGmailLabels();
+
+        for (int year = startYear; year <= endYear; year++) {
+            // Create the parent label first (e.g., "2017")
+            String parentLabelName = String.valueOf(year);
+            getOrCreateLabel(parentLabelName);
+
+            for (String domain : domains) {
+                // Gmail uses forward slashes for nested labels
+                String childLabelName = parentLabelName + "/" + domain;
+                String labelId = getOrCreateLabel(childLabelName);
+
+                // Use Gmail search operators to isolate the exact year and domain
+                String query = String.format("to:%s after:%d/12/31 before:%d/01/01", domain, year - 1, year + 1);
+                applyLabelInBatches(query, labelId);
+            }
+        }
+    }
+
+    private void applyLabelInBatches(String query, String labelId) throws IOException {
+        String pageToken = null;
+        do {
+            ListMessagesResponse response = gmail.users().messages().list("me")
+                    .setQ(query)
+                    .setPageToken(pageToken)
+                    .execute();
+
+            List<Message> messages = response.getMessages();
+            if (messages != null && !messages.isEmpty()) {
+                // Extract just the IDs for the batch request
+                List<String> messageIds = messages.stream()
+                        .map(Message::getId)
+                        .collect(Collectors.toList());
+
+                BatchModifyMessagesRequest batchRequest = new BatchModifyMessagesRequest()
+                        .setIds(messageIds)
+                        .setAddLabelIds(Collections.singletonList(labelId));
+
+                // Applies the tag to all messages in this page simultaneously
+                gmail.users().messages().batchModify("me", batchRequest).execute();
+                System.out.println("Applied label '" + labelId + "' to " + messageIds.size() + " messages.");
+            }
+            pageToken = response.getNextPageToken();
+        } while (pageToken != null);
     }
 }

@@ -28,14 +28,23 @@ public class MailMigratorCli {
             jmap.discoverSession();
             FastmailSyncEngine fastmailEngine = new FastmailSyncEngine(jmap, db, storageDir.resolve("eml"));
 
-            // 2. Fetch mailboxes and run archive
+            // 2. Fetch mailboxes (Keep this uncommented as GmailSyncEngine needs the mailboxMap)
             Map<String, String> mailboxMap = fastmailEngine.getMailboxMap();
-            fastmailEngine.runArchive();
 
-            // 3. Gmail Setup & Upload
+            // Commenting out the archive download so it doesn't slow down the script
+            // fastmailEngine.runArchive();
+
+            // 3. Gmail Setup
             Gmail gmail = GmailAuthFactory.createGmailService();
             GmailSyncEngine gmailEngine = new GmailSyncEngine(gmail, db, mailboxMap);
-            gmailEngine.runUpload();
+
+            // Commenting out the upload loop
+            // gmailEngine.runUpload();
+
+            // 4. Run Legacy Cleanup
+            System.out.println("Starting legacy email organization (2017-2025)...");
+            gmailEngine.organizeLegacyEmails(2017, 2025);
+            System.out.println("Legacy email organization complete!");
 
         } catch (Exception e) {
             e.printStackTrace();
