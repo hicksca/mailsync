@@ -8,8 +8,9 @@
 
 - **JMAP Protocol Over HTTP/2**: Uses Fastmail's modern JMAP API rather than legacy IMAP to query message sets and fetch raw RFC 822 `.eml` blobs.
 - **RFC 822 `users.messages.import`**: Ingests emails directly into Gmail's storage engine. Timestamps, original sender/recipient headers, and multi-domain aliases (`carlhicks.org`, `carlhicks.me`, `linux.com`, `hicksca.dev`) are preserved without generating outgoing SMTP traffic or inbox notifications.
-- **SQLite Idempotency (`mail_archive/migration.db`)**: Every downloaded blob and upload operation is tracked. If interrupted by network timeouts or rate limits, the migrator resumes instantly without downloading or uploading duplicate emails.
+- **SQLite Idempotency & Error Handling (`mail_archive/migration.db`)**: Every downloaded blob and upload operation is tracked. If interrupted by network timeouts or rate limits, the migrator resumes instantly without downloading or uploading duplicate emails. It also gracefully catches and skips Google API HTTP 400 blocks (e.g., banned attachments) to prevent pipeline crashes.
 - **Folder to Label Mapping**: Maps Fastmail mailboxes (including multi-mailbox assignments) to Gmail labels, creating custom labels dynamically via the Gmail API when needed.
+- **Legacy Email Organization**: Programmatically sorts migrated historical emails into nested Year/Domain labels (e.g., `2017/carlhicks.me`) using Gmail search queries and batch modifications to safely bypass API quota limits.
 - **Quota & Pacing Management**: Implements backoff retry loops on blob downloads and paces Gmail imports to remain within Google Workspace write limits (250 units/sec limit).
 
 ---
@@ -35,6 +36,7 @@
      ```text
      src/main/resources/credentials.json
      ```
+   - *Note on Scopes:* Ensure your code requests `GMAIL_INSERT`, `GMAIL_LABELS`, and `GMAIL_MODIFY` scopes to support both the initial upload and the post-migration batch tagging.
 
 ---
 
@@ -56,14 +58,15 @@ Build and run using the Gradle wrapper:
 ./gradlew run
 ```
 
-On first run, the CLI will open your default browser to authenticate with your Google Workspace account and store your refresh token under `tokens/`.
+On first run, the CLI will open your default browser to authenticate with your Google Workspace account and store your refresh token under `tokens/`. *(If you update API scopes later, you must delete the `tokens/` directory to force a re-authentication prompt).*
 
-The pipeline proceeds in two stages:
+Depending on how your `MailMigratorCli` main method is configured, the pipeline proceeds in these stages:
 1. **Archive Phase**: Fetches and downloads all raw `.eml` files into `mail_archive/` and records progress in SQLite.
 2. **Upload Phase**: Reads unuploaded messages from SQLite and streams them into Gmail via `users.messages.import`.
+3. **Legacy Organization Phase**: (Optional) Scans the uploaded historical emails (e.g., 2017–2025) and batch-applies nested `Year/Domain` labels based on standard Gmail search queries.
 
 ---
 
 ## License
 
-This project is licensed under the [ISC License](LICENSE).
+This project is licensed under the [ISC License](LICENSE)
